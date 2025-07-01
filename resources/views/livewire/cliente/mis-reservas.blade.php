@@ -158,6 +158,27 @@
                         </div>
                     </div>
 
+                    @if($reserva->voucher_pago)
+                    <div class="mt-3 p-3 bg-blue-50 rounded-lg">
+                        <div class="flex items-center justify-between bg-gray">
+                            <p class="text-sm text-gray-700"><strong>Estado del Voucher:</strong></p>
+                            <span class="px-2 py-1 text-xs font-semibold rounded-full 
+                                @if($reserva->estado_voucher === 'verificado') bg-green-100 text-green-800 
+                                @elseif($reserva->estado_voucher === 'rechazado') bg-red-100 text-red-800 
+                                @else bg-yellow-100 text-yellow-800 @endif">
+                                {{ ucfirst($reserva->estado_voucher) }}
+                            </span>
+                        </div>
+                        @if($reserva->comentario_voucher)
+                        <p class="text-sm text-gray-600 mt-2"><strong>Comentario:</strong> {{ $reserva->comentario_voucher }}</p>
+                        @endif
+                        <button onclick="window.open('{{ asset('storage/' . $reserva->voucher_pago) }}', '_blank')" 
+                                class="text-blue-600 hover:text-blue-900 text-xs mt-2">
+                            Ver voucher subido
+                        </button>
+                    </div>
+                    @endif
+
                     @if($reserva->observaciones)
                     <div class="mt-3 p-3 bg-gray-50 rounded-lg">
                         <p class="text-sm text-gray-700"><strong>Observaciones:</strong> {{ $reserva->observaciones }}</p>

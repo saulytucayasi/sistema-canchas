@@ -66,6 +66,7 @@
                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Cancha</th>
                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Fecha y Hora</th>
                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Estado</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Voucher</th>
                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total</th>
                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Acciones</th>
                     </tr>
@@ -102,6 +103,34 @@
                                 @else bg-red-100 text-red-800 @endif">
                                 {{ ucfirst($reserva->estado) }}
                             </span>
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap">
+                            @if($reserva->voucher_pago)
+                                <div class="flex items-center space-x-2">
+                                    <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full 
+                                        @if($reserva->estado_voucher === 'verificado') bg-green-100 text-green-800 
+                                        @elseif($reserva->estado_voucher === 'rechazado') bg-red-100 text-red-800 
+                                        @else bg-yellow-100 text-yellow-800 @endif">
+                                        {{ ucfirst($reserva->estado_voucher) }}
+                                    </span>
+                                    <button onclick="window.open('{{ asset('storage/' . $reserva->voucher_pago) }}', '_blank')" 
+                                            class="text-blue-600 hover:text-blue-900 text-xs">
+                                        Ver
+                                    </button>
+                                    @if($reserva->estado_voucher === 'pendiente')
+                                        <button wire:click="verificarVoucher({{ $reserva->id }}, 'verificado')" 
+                                                class="text-green-600 hover:text-green-900 text-xs">
+                                            Aprobar
+                                        </button>
+                                        <button wire:click="verificarVoucher({{ $reserva->id }}, 'rechazado')" 
+                                                class="text-red-600 hover:text-red-900 text-xs">
+                                            Rechazar
+                                        </button>
+                                    @endif
+                                </div>
+                            @else
+                                <span class="text-gray-400 text-xs">Sin voucher</span>
+                            @endif
                         </td>
                         <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                             S/ {{ number_format($reserva->precio_total, 2, '.', ',') }}

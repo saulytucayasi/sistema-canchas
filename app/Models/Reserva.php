@@ -19,7 +19,10 @@ class Reserva extends Model
         'hora_fin',
         'precio_total',
         'estado',
-        'observaciones'
+        'observaciones',
+        'voucher_pago',
+        'estado_voucher',
+        'comentario_voucher'
     ];
 
     protected $casts = [

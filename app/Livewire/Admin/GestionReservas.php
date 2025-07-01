@@ -24,12 +24,10 @@ class GestionReservas extends Component
     public $cliente_id = '';
     public $cancha_id = '';
     public $fecha = '';
-    public $hora_inicio = '';
-    public $hora_fin = '';
     public $estado = 'pendiente';
     public $observaciones = '';
     public $precio_total = '';
-    public $horario_seleccionado = '';
+    public $horarios_seleccionados = [];
     public $horariosDisponibles = [];
 
     // Estados disponibles
@@ -129,7 +127,7 @@ class GestionReservas extends Component
 
     public function calcularPrecio()
     {
-        if ($this->cancha_id && $this->hora_inicio && $this->hora_fin) {
+        if ($this->cancha_id && count($this->horarios_seleccionados) > 0) {
             $cancha = Cancha::find($this->cancha_id);
 
             if (!$cancha) {
@@ -142,29 +140,28 @@ class GestionReservas extends Component
                 return;
             }
 
-            try {
-                // Asegurar que el formato de hora sea correcto
-                $horaInicioStr = strlen($this->hora_inicio) == 5 ? $this->hora_inicio : $this->hora_inicio . ':00';
-                $horaFinStr = strlen($this->hora_fin) == 5 ? $this->hora_fin : $this->hora_fin . ':00';
-                
-                $horaInicio = Carbon::createFromFormat('H:i', $horaInicioStr);
-                $horaFin = Carbon::createFromFormat('H:i', $horaFinStr);
-
-                if ($horaFin->lte($horaInicio)) {
-                    session()->flash('error', 'La hora de fin debe ser mayor que la de inicio.');
-                    return;
+            $precioTotal = 0;
+            
+            foreach ($this->horarios_seleccionados as $horario) {
+                try {
+                    list($horaInicio, $horaFin) = explode('-', $horario);
+                    
+                    $horaInicioCarbon = Carbon::createFromFormat('H:i', $horaInicio);
+                    $horaFinCarbon = Carbon::createFromFormat('H:i', $horaFin);
+                    
+                    $duracionMinutos = $horaInicioCarbon->diffInMinutes($horaFinCarbon);
+                    $duracionHoras = $duracionMinutos / 60;
+                    
+                    $precioTotal += $cancha->precio_por_hora * $duracionHoras;
+                } catch (\Exception $e) {
+                    // En caso de error, usar duración de 1 hora como fallback
+                    $precioTotal += $cancha->precio_por_hora;
                 }
-
-                // Calcular duración en horas (siempre positiva)
-                $duracionMinutos = $horaInicio->diffInMinutes($horaFin);
-                $duracionHoras = $duracionMinutos / 60;
-                
-                $this->precio_total = round($cancha->precio_por_hora * $duracionHoras, 2);
-            } catch (\Exception $e) {
-                session()->flash('error', 'Error al calcular el precio: ' . $e->getMessage());
-                // En caso de error, usar duración de 1 hora como fallback
-                $this->precio_total = $cancha->precio_por_hora;
             }
+            
+            $this->precio_total = round($precioTotal, 2);
+        } else {
+            $this->precio_total = 0;
         }
     }
 
@@ -179,42 +176,79 @@ class GestionReservas extends Component
         }
     }
 
-    public function seleccionarHorario($horario)
+    public function toggleHorario($horario)
     {
-        if ($horario['disponible']) {
-            $this->hora_inicio = $horario['hora_inicio'];
-            $this->hora_fin = $horario['hora_fin'];
-            $this->horario_seleccionado = $horario['hora_inicio'] . '-' . $horario['hora_fin'];
-            $this->calcularPrecio();
+        if (!$horario['disponible']) {
+            return;
         }
+
+        $horarioKey = $horario['hora_inicio'] . '-' . $horario['hora_fin'];
+        
+        if (in_array($horarioKey, $this->horarios_seleccionados)) {
+            // Deseleccionar horario
+            $this->horarios_seleccionados = array_filter($this->horarios_seleccionados, function($h) use ($horarioKey) {
+                return $h !== $horarioKey;
+            });
+        } else {
+            // Seleccionar horario
+            $this->horarios_seleccionados[] = $horarioKey;
+        }
+        
+        $this->calcularPrecio();
     }
 
     public function createReserva()
     {
         $this->calcularPrecio();
-        $this->validate();
-
-        $cancha = Cancha::find($this->cancha_id);
         
-        // Verificar disponibilidad con el nuevo sistema de horarios
-        if (!$cancha->estaHorarioDisponible($this->fecha, $this->hora_inicio, $this->hora_fin)) {
-            session()->flash('error', 'El horario seleccionado no está disponible.');
+        // Validar que haya horarios seleccionados
+        if (count($this->horarios_seleccionados) === 0) {
+            session()->flash('error', 'Debes seleccionar al menos un horario.');
             return;
         }
 
-        Reserva::create([
-            'cliente_id' => $this->cliente_id,
-            'cancha_id' => $this->cancha_id,
-            'user_id' => auth()->id(),
-            'fecha' => $this->fecha,
-            'hora_inicio' => $this->hora_inicio,
-            'hora_fin' => $this->hora_fin,
-            'precio_total' => $this->precio_total,
-            'estado' => $this->estado,
-            'observaciones' => $this->observaciones
-        ]);
+        $cancha = Cancha::find($this->cancha_id);
+        $reservasCreadas = [];
+        
+        // Verificar disponibilidad de todos los horarios seleccionados
+        foreach ($this->horarios_seleccionados as $horario) {
+            list($horaInicio, $horaFin) = explode('-', $horario);
+            if (!$cancha->estaHorarioDisponible($this->fecha, $horaInicio, $horaFin)) {
+                session()->flash('error', 'El horario ' . $horario . ' ya no está disponible.');
+                $this->cargarHorariosDisponibles();
+                return;
+            }
+        }
 
-        session()->flash('message', 'Reserva creada exitosamente.');
+        // Crear una reserva por cada horario seleccionado
+        foreach ($this->horarios_seleccionados as $horario) {
+            list($horaInicio, $horaFin) = explode('-', $horario);
+            
+            // Calcular precio individual para este horario
+            $horaInicioCarbon = Carbon::createFromFormat('H:i', $horaInicio);
+            $horaFinCarbon = Carbon::createFromFormat('H:i', $horaFin);
+            $duracionMinutos = $horaInicioCarbon->diffInMinutes($horaFinCarbon);
+            $duracionHoras = $duracionMinutos / 60;
+            $precioIndividual = round($cancha->precio_por_hora * $duracionHoras, 2);
+
+            $reserva = Reserva::create([
+                'cliente_id' => $this->cliente_id,
+                'cancha_id' => $this->cancha_id,
+                'user_id' => auth()->id(),
+                'fecha' => $this->fecha,
+                'hora_inicio' => $horaInicio,
+                'hora_fin' => $horaFin,
+                'precio_total' => $precioIndividual,
+                'estado' => $this->estado,
+                'observaciones' => $this->observaciones,
+                'estado_voucher' => 'verificado' // Admin no necesita voucher
+            ]);
+            
+            $reservasCreadas[] = $reserva->id;
+        }
+
+        $cantidadReservas = count($reservasCreadas);
+        session()->flash('message', $cantidadReservas . ' reserva(s) creada(s) exitosamente. Total: S/ ' . number_format($this->precio_total, 2));
         $this->closeCreateModal();
     }
 
@@ -268,6 +302,23 @@ class GestionReservas extends Component
         session()->flash('message', "Reserva {$nuevoEstado} exitosamente.");
     }
 
+    public function verificarVoucher($reservaId, $estado, $comentario = null)
+    {
+        $reserva = Reserva::find($reservaId);
+        $reserva->update([
+            'estado_voucher' => $estado,
+            'comentario_voucher' => $comentario
+        ]);
+        
+        // Si el voucher es verificado, cambiar estado de reserva a confirmada
+        if ($estado === 'verificado') {
+            $reserva->update(['estado' => 'confirmada']);
+            session()->flash('message', 'Voucher verificado y reserva confirmada exitosamente.');
+        } else {
+            session()->flash('message', 'Voucher ' . $estado . ' exitosamente.');
+        }
+    }
+
     public function deleteReserva($reservaId)
     {
         $reserva = Reserva::find($reservaId);
@@ -280,12 +331,10 @@ class GestionReservas extends Component
         $this->cliente_id = '';
         $this->cancha_id = '';
         $this->fecha = '';
-        $this->hora_inicio = '';
-        $this->hora_fin = '';
         $this->estado = 'pendiente';
         $this->observaciones = '';
         $this->precio_total = '';
-        $this->horario_seleccionado = '';
+        $this->horarios_seleccionados = [];
         $this->horariosDisponibles = [];
         $this->selectedReserva = null;
     }

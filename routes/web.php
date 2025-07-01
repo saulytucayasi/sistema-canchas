@@ -49,7 +49,9 @@ Route::middleware(['auth', 'verified', 'role:secretaria'])->prefix('secretaria')
 Route::middleware(['auth', 'verified', 'role:cliente'])->prefix('cliente')->name('cliente.')->group(function () {
     Route::get('/dashboard', function () { return view('cliente.dashboard'); })->name('dashboard');
     Route::get('/mis-reservas', function () { return view('cliente.mis-reservas'); })->name('mis-reservas');
-    Route::get('/crear-reserva', function () { return view('cliente.crear-reserva'); })->name('crear-reserva');
+    Route::get('/crear-reserva/{cancha_id?}', function ($cancha_id = null) { 
+        return view('cliente.crear-reserva', compact('cancha_id')); 
+    })->name('crear-reserva');
     Route::get('/canchas', function () { return view('cliente.canchas'); })->name('canchas');
 });
 
