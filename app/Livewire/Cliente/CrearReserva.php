@@ -159,7 +159,6 @@ class CrearReserva extends Component
             $this->validate();
 
             $cancha = Cancha::find($this->selectedCancha);
-            $reservasCreadas = [];
             
             // Verificar disponibilidad de todos los horarios seleccionados
             foreach ($this->horarios_seleccionados as $horario) {
@@ -177,36 +176,33 @@ class CrearReserva extends Component
                 $voucherPath = $this->voucher_pago->store('vouchers', 'public');
             }
 
-            // Crear una reserva por cada horario seleccionado
-            foreach ($this->horarios_seleccionados as $horario) {
-                list($horaInicio, $horaFin) = explode('-', $horario);
-                
-                // Calcular precio individual para este horario
-                $horaInicioCarbon = Carbon::createFromFormat('H:i', $horaInicio);
-                $horaFinCarbon = Carbon::createFromFormat('H:i', $horaFin);
-                $duracionMinutos = $horaInicioCarbon->diffInMinutes($horaFinCarbon);
-                $duracionHoras = $duracionMinutos / 60;
-                $precioIndividual = round($cancha->precio_por_hora * $duracionHoras, 2);
+            // Ordenar horarios para encontrar el rango completo
+            $horariosOrdenados = $this->horarios_seleccionados;
+            sort($horariosOrdenados);
+            
+            // Obtener hora de inicio del primer horario y hora de fin del último horario
+            $primerHorario = explode('-', $horariosOrdenados[0]);
+            $ultimoHorario = explode('-', $horariosOrdenados[count($horariosOrdenados) - 1]);
+            
+            $horaInicio = $primerHorario[0];
+            $horaFin = $ultimoHorario[1];
 
-                $reserva = Reserva::create([
-                    'cliente_id' => $this->cliente_id,
-                    'cancha_id' => $this->selectedCancha,
-                    'user_id' => auth()->id(),
-                    'fecha' => $this->fecha,
-                    'hora_inicio' => $horaInicio,
-                    'hora_fin' => $horaFin,
-                    'precio_total' => $precioIndividual,
-                    'estado' => 'pendiente',
-                    'observaciones' => $this->observaciones,
-                    'voucher_pago' => $voucherPath,
-                    'estado_voucher' => 'pendiente'
-                ]);
-                
-                $reservasCreadas[] = $reserva->id;
-            }
+            // Crear una sola reserva que abarque todos los horarios seleccionados
+            $reserva = Reserva::create([
+                'cliente_id' => $this->cliente_id,
+                'cancha_id' => $this->selectedCancha,
+                'user_id' => auth()->id(),
+                'fecha' => $this->fecha,
+                'hora_inicio' => $horaInicio,
+                'hora_fin' => $horaFin,
+                'precio_total' => $this->precio_total,
+                'estado' => 'pendiente',
+                'observaciones' => $this->observaciones,
+                'voucher_pago' => $voucherPath,
+                'estado_voucher' => 'pendiente'
+            ]);
 
-            $cantidadReservas = count($reservasCreadas);
-            session()->flash('message', $cantidadReservas . ' reserva(s) creada(s) exitosamente. Total: S/ ' . number_format($this->precio_total, 2));
+            session()->flash('message', 'Reserva creada exitosamente para ' . count($this->horarios_seleccionados) . ' horario(s). Total: S/ ' . number_format($this->precio_total, 2));
             
             // Limpiar formulario
             $this->reset(['selectedCancha', 'observaciones', 'voucher_pago', 'horarios_seleccionados']);

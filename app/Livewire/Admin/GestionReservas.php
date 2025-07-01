@@ -42,8 +42,6 @@ class GestionReservas extends Component
         'cliente_id' => 'required|exists:clientes,id',
         'cancha_id' => 'required|exists:canchas,id',
         'fecha' => 'required|date|after_or_equal:today',
-        'hora_inicio' => 'required',
-        'hora_fin' => 'required',
         'estado' => 'required|in:pendiente,confirmada,cancelada,completada',
         'observaciones' => 'nullable|string|max:500',
         'precio_total' => 'required|numeric|min:0'
@@ -72,18 +70,14 @@ class GestionReservas extends Component
     public function updatedCanchaId()
     {
         $this->cargarHorariosDisponibles();
-        $this->horario_seleccionado = '';
-        $this->hora_inicio = '';
-        $this->hora_fin = '';
+        $this->horarios_seleccionados = [];
         $this->precio_total = '';
     }
 
     public function updatedFecha()
     {
         $this->cargarHorariosDisponibles();
-        $this->horario_seleccionado = '';
-        $this->hora_inicio = '';
-        $this->hora_fin = '';
+        $this->horarios_seleccionados = [];
         $this->precio_total = '';
     }
 
@@ -106,15 +100,13 @@ class GestionReservas extends Component
         $this->cliente_id = $this->selectedReserva->cliente_id;
         $this->cancha_id = $this->selectedReserva->cancha_id;
         $this->fecha = $this->selectedReserva->fecha->format('Y-m-d');
-        $this->hora_inicio = $this->selectedReserva->hora_inicio;
-        $this->hora_fin = $this->selectedReserva->hora_fin;
         $this->estado = $this->selectedReserva->estado;
         $this->observaciones = $this->selectedReserva->observaciones;
         $this->precio_total = $this->selectedReserva->precio_total;
         
         // Cargar horarios disponibles y establecer el horario seleccionado
         $this->cargarHorariosDisponibles();
-        $this->horario_seleccionado = $this->hora_inicio . '-' . $this->hora_fin;
+        $this->horarios_seleccionados = [$this->selectedReserva->hora_inicio . '-' . $this->selectedReserva->hora_fin];
         
         $this->showEditModal = true;
     }
@@ -208,7 +200,6 @@ class GestionReservas extends Component
         }
 
         $cancha = Cancha::find($this->cancha_id);
-        $reservasCreadas = [];
         
         // Verificar disponibilidad de todos los horarios seleccionados
         foreach ($this->horarios_seleccionados as $horario) {
@@ -220,71 +211,88 @@ class GestionReservas extends Component
             }
         }
 
-        // Crear una reserva por cada horario seleccionado
-        foreach ($this->horarios_seleccionados as $horario) {
-            list($horaInicio, $horaFin) = explode('-', $horario);
-            
-            // Calcular precio individual para este horario
-            $horaInicioCarbon = Carbon::createFromFormat('H:i', $horaInicio);
-            $horaFinCarbon = Carbon::createFromFormat('H:i', $horaFin);
-            $duracionMinutos = $horaInicioCarbon->diffInMinutes($horaFinCarbon);
-            $duracionHoras = $duracionMinutos / 60;
-            $precioIndividual = round($cancha->precio_por_hora * $duracionHoras, 2);
+        // Ordenar horarios para encontrar el rango completo
+        $horariosOrdenados = $this->horarios_seleccionados;
+        sort($horariosOrdenados);
+        
+        // Obtener hora de inicio del primer horario y hora de fin del último horario
+        $primerHorario = explode('-', $horariosOrdenados[0]);
+        $ultimoHorario = explode('-', $horariosOrdenados[count($horariosOrdenados) - 1]);
+        
+        $horaInicio = $primerHorario[0];
+        $horaFin = $ultimoHorario[1];
 
-            $reserva = Reserva::create([
-                'cliente_id' => $this->cliente_id,
-                'cancha_id' => $this->cancha_id,
-                'user_id' => auth()->id(),
-                'fecha' => $this->fecha,
-                'hora_inicio' => $horaInicio,
-                'hora_fin' => $horaFin,
-                'precio_total' => $precioIndividual,
-                'estado' => $this->estado,
-                'observaciones' => $this->observaciones,
-                'estado_voucher' => 'verificado' // Admin no necesita voucher
-            ]);
-            
-            $reservasCreadas[] = $reserva->id;
-        }
+        // Crear una sola reserva que abarque todos los horarios seleccionados
+        $reserva = Reserva::create([
+            'cliente_id' => $this->cliente_id,
+            'cancha_id' => $this->cancha_id,
+            'user_id' => auth()->id(),
+            'fecha' => $this->fecha,
+            'hora_inicio' => $horaInicio,
+            'hora_fin' => $horaFin,
+            'precio_total' => $this->precio_total,
+            'estado' => $this->estado,
+            'observaciones' => $this->observaciones,
+            'estado_voucher' => 'verificado' // Admin no necesita voucher
+        ]);
 
-        $cantidadReservas = count($reservasCreadas);
-        session()->flash('message', $cantidadReservas . ' reserva(s) creada(s) exitosamente. Total: S/ ' . number_format($this->precio_total, 2));
+        session()->flash('message', 'Reserva creada exitosamente para ' . count($this->horarios_seleccionados) . ' horario(s). Total: S/ ' . number_format($this->precio_total, 2));
         $this->closeCreateModal();
     }
 
     public function updateReserva()
     {
         $this->calcularPrecio();
-        $this->validate();
+        
+        // Validar que haya horarios seleccionados
+        if (count($this->horarios_seleccionados) === 0) {
+            session()->flash('error', 'Debes seleccionar al menos un horario.');
+            return;
+        }
 
         $cancha = Cancha::find($this->cancha_id);
         
-        // Verificar disponibilidad (excluyendo la reserva actual)
-        $reservasConflicto = $cancha->reservas()
-            ->where('id', '!=', $this->selectedReserva->id)
-            ->where('fecha', $this->fecha)
-            ->where(function ($query) {
-                $query->whereBetween('hora_inicio', [$this->hora_inicio, $this->hora_fin])
-                    ->orWhereBetween('hora_fin', [$this->hora_inicio, $this->hora_fin])
-                    ->orWhere(function ($q) {
-                        $q->where('hora_inicio', '<', $this->hora_inicio)
-                          ->where('hora_fin', '>', $this->hora_fin);
-                    });
-            })
-            ->where('estado', '!=', 'cancelada')
-            ->exists();
+        // Verificar disponibilidad de todos los horarios seleccionados (excluyendo la reserva actual)
+        foreach ($this->horarios_seleccionados as $horario) {
+            list($horaInicio, $horaFin) = explode('-', $horario);
+            
+            $reservasConflicto = $cancha->reservas()
+                ->where('id', '!=', $this->selectedReserva->id)
+                ->where('fecha', $this->fecha)
+                ->where(function ($query) use ($horaInicio, $horaFin) {
+                    $query->whereBetween('hora_inicio', [$horaInicio, $horaFin])
+                        ->orWhereBetween('hora_fin', [$horaInicio, $horaFin])
+                        ->orWhere(function ($q) use ($horaInicio, $horaFin) {
+                            $q->where('hora_inicio', '<', $horaInicio)
+                              ->where('hora_fin', '>', $horaFin);
+                        });
+                })
+                ->where('estado', '!=', 'cancelada')
+                ->exists();
 
-        if ($reservasConflicto) {
-            session()->flash('error', 'La cancha no está disponible en ese horario.');
-            return;
+            if ($reservasConflicto) {
+                session()->flash('error', 'El horario ' . $horario . ' no está disponible.');
+                return;
+            }
         }
+
+        // Ordenar horarios para encontrar el rango completo
+        $horariosOrdenados = $this->horarios_seleccionados;
+        sort($horariosOrdenados);
+        
+        // Obtener hora de inicio del primer horario y hora de fin del último horario
+        $primerHorario = explode('-', $horariosOrdenados[0]);
+        $ultimoHorario = explode('-', $horariosOrdenados[count($horariosOrdenados) - 1]);
+        
+        $horaInicio = $primerHorario[0];
+        $horaFin = $ultimoHorario[1];
 
         $this->selectedReserva->update([
             'cliente_id' => $this->cliente_id,
             'cancha_id' => $this->cancha_id,
             'fecha' => $this->fecha,
-            'hora_inicio' => $this->hora_inicio,
-            'hora_fin' => $this->hora_fin,
+            'hora_inicio' => $horaInicio,
+            'hora_fin' => $horaFin,
             'precio_total' => $this->precio_total,
             'estado' => $this->estado,
             'observaciones' => $this->observaciones

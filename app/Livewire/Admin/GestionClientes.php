@@ -27,11 +27,11 @@ class GestionClientes extends Component
 
     protected $rules = [
         'nombre' => 'required|string|max:255',
-        'apellido' => 'required|string|max:255',
+        'apellido' => 'nullable|string|max:255',
         'email' => 'required|email|unique:clientes,email',
-        'telefono' => 'required|string|max:20',
-        'documento' => 'required|string|unique:clientes,documento',
-        'fecha_nacimiento' => 'required|date|before:today',
+        'telefono' => 'nullable|string|max:20',
+        'documento' => 'nullable|string|unique:clientes,documento',
+        'fecha_nacimiento' => 'nullable|date|before:today',
         'direccion' => 'nullable|string',
         'activo' => 'boolean'
     ];
